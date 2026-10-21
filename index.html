@@ -945,7 +945,8 @@ function builder(){
     for(let i=0;i<hold;i++)  add(curve, ease(y0,y1,(enter+i)/tot));
     for(let i=0;i<leave;i++) add(ease(curve,0,i/leave), ease(y0,y1,(enter+hold+i)/tot));
   }
-  const S={short:26,med:52,long:100}, H={low:14,med:28,high:48}, C={soft:1.6,med:3.3,hard:5};
+  // hair = 밟지 않으면 못 도는 반경. 브레이크가 보상이라는 설계를 코스가 받쳐준다.
+  const S={short:26,med:52,long:100}, H={low:14,med:28,high:48}, C={soft:1.6,med:3.3,hard:5,hair:6.5};
   return {
     segs:segs, S:S, H:H, C:C, road:road,
     straight:(n,dy)=> road(n||S.med,n||S.med,n||S.med,0,dy||0),
@@ -961,12 +962,25 @@ const TRACK_DEFS = [
     colors:{ sky:["#3f9ef2","#c7e8ff"], hill:"#6c8f5a", hill2:"#86a878", hill3:"#486a3c",
              grass1:"#4e8f45", grass2:"#468038", rumble1:"#ffffff", rumble2:"#d94646",
              road1:"#585f6b", road2:"#525963", lane:"#ffffff", fog:"#c7e8ff", obj:"#2f5a2a" },
+    /* 제일 쉬운 코스 — 큰 반경으로 흐르되 기억에 남는 자리를 둔다:
+       조여드는 오르막 코너, 블라인드 크레스트 직후의 짧은 오른쪽, 물결 구간. */
     build(b){ const {S,C,H}=b;
-      b.straight(S.long); b.curve(S.med,C.soft); b.straight(S.short);
-      b.curve(S.long,-C.med); b.hill(S.med,H.low); b.straight(S.med);
-      b.curve(S.med,C.med,H.low); b.straight(S.short); b.s(S.short,C.soft);
-      b.curve(S.long,-C.soft,-H.low); b.straight(S.med); b.curve(S.med,C.med);
-      b.hill(S.short,-H.low); b.straight(S.long); b.curve(S.med,-C.soft);
+      b.straight(S.long);                   // 출발 직선 — 여기서 최고속이 난다
+      b.road(60, 50, 40, C.soft, 0);        // 완만한 오른쪽
+      b.road(20, 60, 70, C.med, H.low);     // 오르막에서 조여들고 길게 풀린다
+      b.straight(S.short);
+      b.road(45, 90, 45, -C.med, -H.low);   // 내리막 긴 왼쪽
+      b.hill(S.short, H.med);               // 블라인드 크레스트
+      b.road(18, 24, 20, C.hard, 0);        // 넘자마자 짧고 날카로운 오른쪽
+      b.straight(S.short);
+      b.s(S.short, C.med);                  // 시케인
+      b.road(55, 110, 35, -C.soft, 0);      // 아주 긴 왼쪽 스위퍼
+      b.rolling(S.short, H.med);            // 물결
+      b.road(30, 80, 30, C.med, 0);
+      b.straight(S.short);
+      b.road(25, 30, 35, -C.hard, H.low);   // 오르막 급코너
+      b.straight(S.long);                   // 결승 직선
+      b.road(20, 20, 28, C.soft, 0);        // 마지막 가벼운 킥
       b.straight(S.med);
     }, objs:["tree","tree","house","tree","tree","sign"] },
   { name:"바닷가", sky:"sunset",
@@ -974,24 +988,52 @@ const TRACK_DEFS = [
              sea:"#1d6e9e", seaLit:"#ffc98a", hill3b:"#cbb079",
              grass1:"#e8d49a", grass2:"#ddc687", rumble1:"#ffffff", rumble2:"#2f7fb5",
              road1:"#6b6256", road2:"#645c51", lane:"#fff6e0", fog:"#ffd9a0", obj:"#2f8f7a" },
+    /* 길게 흐르는 코스 — 바다를 끼고 도는 느낌. 큰 스위퍼와 모래언덕 기복이 주인공이고,
+       중간의 내리막 헤어핀 하나가 유일하게 확실히 세우는 자리다. */
     build(b){ const {S,C,H}=b;
-      b.straight(S.med); b.s(S.med,C.med); b.curve(S.long,C.med,H.low);
-      b.straight(S.short); b.rolling(S.short,H.med); b.curve(S.med,-C.hard);
-      b.straight(S.med); b.s(S.short,C.med); b.curve(S.long,C.soft,-H.low);
-      b.hill(S.med,H.med); b.curve(S.med,-C.med,-H.med); b.straight(S.long);
-      b.curve(S.short,C.hard); b.straight(S.med);
+      b.straight(S.med);
+      b.road(70, 130, 50, C.soft, H.low);   // 아주 긴 오른쪽 스위퍼
+      b.road(30, 40, 60, -C.med, 0);        // 반대로 꺾여 길게 풀린다
+      b.rolling(S.short, H.med);            // 모래언덕
+      b.straight(S.short);
+      b.road(22, 30, 24, C.hair, -H.low);   // 내리막 헤어핀 — 안 밟으면 밖으로 난다
+      b.straight(S.short);
+      b.road(60, 120, 40, -C.med, 0);       // 긴 왼쪽
+      b.hill(S.med, H.med);                 // 언덕 하나 넘고
+      b.road(25, 50, 45, C.med, -H.med);    // 내리막 오른쪽
+      b.s(S.short, C.med);                  // 시케인
+      b.road(40, 90, 40, -C.med, 0);
+      b.road(50, 80, 50, C.soft, H.low);
+      b.straight(S.long);                   // 해안 직선
+      b.road(20, 30, 26, C.hard, 0);        // 마지막 코너
+      b.straight(S.med);
     }, objs:["palm","palm","umbrella","palm","palm","sign"] },
   { name:"밤 도시", sky:"night",
     colors:{ sky:["#070b24","#3a1f6b"], hill:"#1a1f45", hill2:"#242a57", hill3:"#0e1230",
              lit:"#ffd98a",
              grass1:"#1b2140", grass2:"#171c36", rumble1:"#ffd84d", rumble2:"#2b3360",
              road1:"#2a2f45", road2:"#262b3e", lane:"#ffe68a", fog:"#2a1b4d", obj:"#4ad4ff" },
+    /* 제일 어려운 코스 — 짧은 직선과 연속된 꺾임. 헤어핀 둘, 시케인 둘.
+       브레이크를 안 쓰면 거의 모든 코너에서 밖으로 난다. 큰아이용. */
     build(b){ const {S,C,H}=b;
-      b.straight(S.med); b.curve(S.med,C.hard); b.straight(S.short);
-      b.curve(S.med,-C.hard); b.rolling(S.short,H.high); b.straight(S.med);
-      b.s(S.short,C.hard); b.curve(S.long,C.med,H.med); b.straight(S.short);
-      b.curve(S.med,-C.med,-H.med); b.hill(S.med,-H.med); b.s(S.med,C.med);
-      b.straight(S.long); b.curve(S.short,C.hard); b.straight(S.med);
+      b.straight(S.med);
+      b.road(16, 30, 22, C.hard, 0);        // 곧바로 1번 코너
+      b.straight(S.short);
+      b.road(20, 40, 20, -C.hair, 0);       // 왼쪽 헤어핀
+      b.rolling(S.short, H.high);           // 큰 기복
+      b.road(14, 20, 16, C.hard, H.low);    // 오르막 짧은 오른쪽
+      b.s(S.short, C.hard);                 // 빠른 시케인
+      b.road(70, 140, 50, C.med, H.med);    // 긴 오르막 오른쪽 — 유일하게 쉬어가는 곳
+      b.straight(S.short);
+      b.road(24, 40, 40, -C.med, -H.med);   // 내리막 왼쪽
+      b.hill(S.med, -H.med);
+      b.s(S.med, C.med);                    // 느린 시케인
+      b.road(18, 40, 18, C.hair, 0);        // 두 번째 헤어핀
+      b.road(30, 60, 30, C.med, 0);
+      b.road(45, 95, 45, -C.soft, 0);
+      b.straight(S.long);                   // 유일한 긴 직선
+      b.road(20, 26, 24, -C.hard, 0);
+      b.straight(S.short);
     }, objs:["lamp","tower","lamp","tower","lamp","sign"] }
 ];
 
@@ -1771,6 +1813,14 @@ function renderView(vp, p, opp, tk, now){
   ctx.translate(0, shake);
 
   drawSkyAndHills(ctx, w, h, horizon, C, p.skyOff||0, tk.sky);
+  /* 수평선 아래를 먼 안개색으로 깔아둔다.
+     DRAW(190)개로는 도로가 지평선까지 못 닿아서, 언덕 아랫단(horizon+4)과
+     가장 먼 도로 사이에 아무도 칠하지 않는 띠가 남는다. 캔버스를 매 프레임
+     지우지 않으므로 그 띠가 까맣게 비치고, 높이가 속도·언덕에 따라 출렁여서
+     지평선이 깜빡인다 — 달리면서 계속 보는 곳이라 이게 제일 어지러웠다.
+     언덕 너머로 세그먼트가 통째로 건너뛰어진 자리도 이 한 줄이 같이 메운다. */
+  ctx.fillStyle = C.fog;
+  ctx.fillRect(0, horizon + 3, w, h - horizon);
 
   let maxy = h, x = 0, dx = -(base.curve*pct);
   for (let n=0; n<DRAW; n++){
