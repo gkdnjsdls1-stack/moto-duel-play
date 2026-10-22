@@ -169,11 +169,15 @@ p.note b{color:var(--ink);font-weight:400}
 .pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:min(290px,84vw)}
 .pad button{
   aspect-ratio:1.5;border-radius:3px 11px 11px 3px;
+  display:grid;place-items:center;
   background:linear-gradient(180deg,var(--panel-hi),var(--panel));
   border:2px solid var(--edge);border-left:4px solid var(--rally);
   font-family:var(--data);font-weight:700;font-size:clamp(19px,4.2vh,28px);
 }
 .pad button:active{transform:translateY(2px);background:var(--panel-hi)}
+/* 지우기·확인 글리프는 글꼴에 없는 기기가 있다(안드로이드에서 네모로 뜬다) —
+   다른 아이콘과 같이 canvas로 그린다 */
+.pad button canvas{width:38%;aspect-ratio:1;height:auto;display:block}
 .entry{
   font-family:var(--data);font-weight:700;font-size:clamp(30px,7.4vh,54px);
   letter-spacing:.2em;color:var(--bg-deep);background:var(--ink);
@@ -195,16 +199,20 @@ p.note b{color:var(--ink);font-weight:400}
   display:flex;flex-direction:column;align-items:stretch;
 }
 .riderpick canvas{width:100%;aspect-ratio:1;display:block}
+/* 이름이 키다 — 잘라서 「○○이」만 보이면 누구 카드인지 헷갈린다. 줄을 바꾼다. */
 .riderpick span{
-  padding:2px 3px 4px;text-align:center;font-size:clamp(10px,1.6vh,13px);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim);
+  padding:2px 3px 4px;text-align:center;font-size:clamp(9px,1.45vh,12px);
+  line-height:1.18;overflow-wrap:anywhere;color:var(--dim);
 }
 .riderpick[aria-pressed="true"]{
   border-color:var(--gold);border-left-color:var(--gold);
   background:linear-gradient(180deg,#44331f,#2b2032);
 }
 .riderpick[aria-pressed="true"] span{color:var(--gold)}
-.riderpick[disabled]{opacity:.34}
+/* 「내일 또」는 중요한 상태다 — opacity .34에서는 대비가 2.6:1이라 안 읽혔다 */
+.riderpick[disabled]{opacity:.62}
+.riderpick[disabled] span{color:var(--ink)}
+.riderpick[disabled] .zzz{color:var(--gold)}
 /* 남은 판 수 — 아이가 글자를 못 읽어도 칸으로 보인다 */
 .pips{display:flex;gap:3px;justify-content:center;padding:0 0 5px}
 .pips i{width:clamp(6px,1.1vh,9px);aspect-ratio:1;border-radius:50%;
@@ -217,14 +225,16 @@ p.note b{color:var(--ink);font-weight:400}
 .energyline b{color:var(--go);font-weight:400}
 
 /* 자기 카드에 붙는 연필 — 누르면 이름 정하는 화면 */
-.riderpick .pen{
+.ridercell .pen{
   position:absolute;top:-7px;right:-7px;
   width:clamp(22px,3.6vh,28px);aspect-ratio:1;border-radius:50%;
   background:var(--gold);border:2px solid var(--bg-deep);
   display:grid;place-items:center;padding:3px;
 }
-.riderpick .pen canvas{width:100%;height:100%;display:block}
-.riderpick{position:relative;overflow:visible}
+.ridercell .pen canvas{width:100%;height:100%;display:block}
+/* 연필은 카드 밖(형제)에 있다 — 카드가 비활성(오늘 몫 소진)이어도 이름은 고칠 수 있어야 한다.
+   button[disabled]의 자식에는 클릭 이벤트가 가지 않는다. */
+.ridercell{position:relative;display:flex}
 
 /* ---------- 이름 정하기 ---------- */
 .renamebike{width:clamp(66px,16vh,120px);aspect-ratio:1}
@@ -550,6 +560,10 @@ input[type=text]:focus{outline:none;border-color:var(--gold);border-left-color:v
   #s-setup .riderpick{width:clamp(42px,10vh,68px)}
   #s-setup .trackpick{width:clamp(68px,14vh,104px)}
   #s-setup .start{min-height:clamp(38px,8.4vh,56px)}
+  /* 명단은 네 줄이 다 보여야 한다. 46vh면 두 줄에서 잘리고,
+     화면 안에 또 스크롤이 생겨 아이가 아래 두 명을 못 찾는다 — 화면 하나로 굴린다. */
+  #s-names .roster{max-height:none;overflow-y:visible}
+  #s-names .board{max-height:none}
 }
 </style>
 
@@ -737,6 +751,12 @@ const DEF_ROSTER = [
 const OLD_PRESETS = ["첫째","둘째","셋째"];
 /* 아직 아무도 이름을 안 지은 손님 자리인가 */
 function unnamed(nm){ return /^손님 [1-3]$/.test(String(nm||"")); }
+/* 2026-10-21 이전 버전에는 charset 선언이 없어서, 그때 저장된 이름이 「ì²«ì§¸」처럼
+   깨진 채로 localStorage에 남는다 — 바이트가 이미 유실돼 되살릴 수 없고, 판 올림(ver)으로도
+   안 걸러진다(기본 이름 목록과 안 맞으니까). 아이 기기에 그대로 남아 있을 자리라 기본값으로 되돌린다.
+   한 글자만으로는 판단하지 않는다 — 깨진 한글은 늘 두 자 이상 붙어 나온다. */
+const MOJI = /[\u00C0-\u00FF][\u0080-\u00FF\u0152-\u017E\u02C6-\u02DC\u2018-\u201D\u2122]/;
+function sane(v, fallback){ return MOJI.test(String(v == null ? "" : v)) ? fallback : v; }
 const DEF_CFG = {ver:CFG_VER, game:"오토바이 대결", tilt:false, sound:true, track:0,
                  roster:DEF_ROSTER, pickA:0, pickB:1, energyDate:"",
                  hostCode:"", lastCode:""};
@@ -774,8 +794,9 @@ function loadCfg(){
   }
   if (!Array.isArray(CFG.roster) || !CFG.roster.length)
     CFG.roster = DEF_ROSTER.map(r=>Object.assign({},r));
+  CFG.game = String(sane(CFG.game, DEF_CFG.game) || DEF_CFG.game).slice(0,14);
   CFG.roster = CFG.roster.slice(0,4).map((r,i)=>({
-    name: String((r && r.name) || DEF_ROSTER[i].name).slice(0,8),
+    name: String(sane((r && r.name) || DEF_ROSTER[i].name, DEF_ROSTER[i].name)).slice(0,8),
     color: clamp((r && r.color)|0, 0, BIKES.length-1),
     rating: clamp(Number(r && r.rating) || 0, -RATING_CAP, RATING_CAP),
     assist: (r && r.assist) !== false,
@@ -870,6 +891,20 @@ function shownLevel(r){
 function saveCfg(){ try{ localStorage.setItem("moto1.cfg", JSON.stringify(CFG)); }catch(e){} }
 function loadBoard(){ try{ return JSON.parse(localStorage.getItem("moto1.board")||"{}") || {}; }catch(e){ return {}; } }
 function saveBoard(b){ try{ localStorage.setItem("moto1.board", JSON.stringify(b)); }catch(e){} }
+/* 혼자 연습의 최고 기록 — 「기록에 도전」이 말이 되려면 남아야 한다.
+   키는 선수 이름 + 코스. 이름이 키라는 규칙을 여기서도 따른다. */
+function loadBest(){ try{ return JSON.parse(localStorage.getItem("moto1.best")||"{}") || {}; }catch(e){ return {}; } }
+function bestOf(name, ti){
+  const v = loadBest()[String(name) + "|" + (ti|0)];
+  return (typeof v === "number" && v > 0) ? v : null;
+}
+function saveBest(name, ti, ms){
+  try{
+    const b = loadBest();
+    b[String(name) + "|" + (ti|0)] = Math.round(ms);
+    localStorage.setItem("moto1.best", JSON.stringify(b));
+  }catch(e){}
+}
 function today(){ const d=new Date(); const p=n=>String(n).padStart(2,"0");
   return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
 /* loadCfg()는 BIKES/HCAP를 쓰므로 start()에서 부른다 (선언 전 접근 방지) */
@@ -958,10 +993,19 @@ const sfx = {
 const SEG = 200, RUMBLE = 4, LANES = 2, ROAD_W = 2000;
 const CAM_H = 1050, FOV = 100, DRAW = 320, FOG = 1.8;
 const MAX_SPEED = 12000;
-const ACCEL = MAX_SPEED/4.4, BRAKING = -MAX_SPEED/1.15, DECEL = -MAX_SPEED/5.2;
+const ACCEL = MAX_SPEED/2.6, BRAKING = -MAX_SPEED/2.0, DECEL = -MAX_SPEED/5.2;
 const OFF_DECEL = -MAX_SPEED/1.7, OFF_LIMIT = MAX_SPEED/3.7;
-const BOOST_MUL = 1.3, BOOST_TIME = 1.75;
+/* 「브레이크는 벌칙이 아니라 보상」을 숫자로 지탱하는 네 값이다. 2026-10-22에 다시 쟀다:
+   예전 값(ACCEL 4.4 · BRAKING 1.15 · 부스트 1.3x1.75s · 충전 0.5/s)에서는
+   한 칸 채우는 데 코너 3개가 필요했고, 브레이크를 쓰는 쪽이 어느 코스에서도 4~8초 느렸다.
+   지금은 한 코너에 한 칸이 차고, 능숙한 쪽이 브레이크를 쓰면 더 빠르다.
+   느낌이 안 맞으면 이 네 개만 만진다 — 다른 데 손대면 핸디캡 눈금이 같이 틀어진다. */
+const BOOST_MUL = 1.5, BOOST_TIME = 3.0;
+const DRIFT_CHARGE = 1.4;
 const LAPS = 2;
+/* 뒤처진 쪽을 조금 밀어주는 보정. 좌우·양 기기가 같은 값이어야 한다 —
+   예전에는 반반 모드만 0.05/0.08로 갈려서 오른쪽 아이가 늘 60% 더 세게 보정받았다. */
+const RUBBER = 0.065;
 
 function builder(){
   const segs = [];
@@ -1118,6 +1162,10 @@ const BIKES = [
   {name:"파랑", body:"#2f86ff", trim:"#cfe6ff", helmet:"#ffffff"},
   {name:"보라", body:"#a765f0", trim:"#ecd9ff", helmet:"#ffffff"}
 ];
+
+/* 상대 기기가 보낸 색은 신뢰 경계 밖이다 — 범위를 벗어나면 BIKES[n]이 undefined가 되어
+   레이스 루프가 그 자리에서 죽는다. 색을 쓰는 길을 이 하나로 모았다. */
+function bike(i){ return BIKES[clamp(i|0, 0, BIKES.length-1)]; }
 
 /* ---------- bike drawing ---------- */
 function drawBike(c, cx, by, h, lean, col, alpha, phase, drifting, braking, speedR){
@@ -1371,6 +1419,22 @@ function drawIcon(c, kind, W, H){
   } else if (kind === "brakepad"){
     c.fillStyle = "#ffecee";
     rr(c, W*0.5 - S*0.22, H*0.5 - S*0.22, S*0.44, S*0.44, S*0.07); c.fill();
+  } else if (kind === "del"){          // 한 자 지우기
+    c.fillStyle = UI.bone;
+    c.beginPath();
+    c.moveTo(W*0.12, H*0.5); c.lineTo(W*0.38, H*0.22);
+    c.lineTo(W*0.88, H*0.22); c.lineTo(W*0.88, H*0.78); c.lineTo(W*0.38, H*0.78);
+    c.closePath(); c.fill();
+    c.strokeStyle = UI.dark; c.lineWidth = S*0.08;
+    c.beginPath();
+    c.moveTo(W*0.52, H*0.38); c.lineTo(W*0.76, H*0.62);
+    c.moveTo(W*0.76, H*0.38); c.lineTo(W*0.52, H*0.62);
+    c.stroke();
+  } else if (kind === "ok"){            // 들어가기
+    c.strokeStyle = "#4bea97"; c.lineWidth = S*0.15;
+    c.beginPath();
+    c.moveTo(W*0.16, H*0.52); c.lineTo(W*0.40, H*0.76); c.lineTo(W*0.84, H*0.24);
+    c.stroke();
   } else if (kind === "tablet"){
     const r = deviceShape(c, W*0.04, H*0.03, W*0.92, H*0.94);
     c.save(); clipScreen(c, r); miniScene(c, r.x, r.y, r.w, r.h, 0); c.restore();
@@ -1423,8 +1487,11 @@ function drawFlagArt(c, W, H){
   c.beginPath(); c.moveTo(W*0.20, H*0.10); c.lineTo(W*0.20, H*0.94); c.stroke();
   checkerPatch(c, W*0.22, H*0.12, W*0.62, H*0.42, 4);
 }
-/* 결과 카드에 쓸 선수 — 모드마다 누가 어느 쪽인지 다르다 */
+/* 결과 카드에 쓸 선수. 판이 시작될 때 G.sides에 양쪽을 박아 두므로 presence가
+   끊겨도 이름과 색이 남는다 — 예전에는 상대가 끊기면 결과와 기록판에 「상대」가 적혔다. */
 function sideRider(side){
+  const fixed = G.sides && G.sides[side];
+  if (fixed) return {name:fixed.n, color:fixed.c};
   const p = G.players.find(q=> q.side === side);
   if (p) return {name:p.label, color:p.colorIdx};
   if (G.mode === "net"){
@@ -1574,8 +1641,10 @@ function stepPlayer(p, dt, tk){
 
   // 브레이크 드리프트 → 부스트
   p.drifting = !!p.brake && Math.abs(p.steer) > 0.22 && sr > 0.33 && !off;
-  if (p.drifting) p.boost = Math.min(1, p.boost + 0.5*dt);
-  if (p.boost >= 1 && p.boosting <= 0){ p.boosting = BOOST_TIME; p.boost = 0; sfx.whoosh(); say(p,"슈웅!"); }
+  if (p.drifting) p.boost = Math.min(1, p.boost + DRIFT_CHARGE*dt);
+  /* 브레이크를 놓는 순간 터진다. 코너 한가운데서 터지면 원심력이 1.5배로 세져
+     그대로 길 밖으로 난다 — 보상이 벌칙이 되는 자리였다. 다 찬 칸은 놓을 때까지 기다린다. */
+  if (p.boost >= 1 && p.boosting <= 0 && !p.brake){ p.boosting = BOOST_TIME; p.boost = 0; sfx.whoosh(); say(p,"슈웅!"); }
   if (p.boosting > 0) p.boosting -= dt;
 
   // lean
@@ -1895,7 +1964,7 @@ function renderView(vp, p, opp, tk, now){
 
   drawSkyAndHills(ctx, w, h, horizon, C, p.skyOff||0, tk.sky);
   /* 수평선 아래를 먼 안개색으로 깔아둔다.
-     DRAW(190)개로는 도로가 지평선까지 못 닿아서, 언덕 아랫단(horizon+4)과
+     DRAW개로는 도로가 지평선까지 못 닿아서, 언덕 아랫단(horizon+4)과
      가장 먼 도로 사이에 아무도 칠하지 않는 띠가 남는다. 캔버스를 매 프레임
      지우지 않으므로 그 띠가 까맣게 비치고, 높이가 속도·언덕에 따라 출렁여서
      지평선이 깜빡인다 — 달리면서 계속 보는 곳이라 이게 제일 어지러웠다.
@@ -1932,7 +2001,7 @@ function renderView(vp, p, opp, tk, now){
       const sc = s.p1.screen;
       const bh = Math.max(4, sc.w*0.52);
       drawBike(ctx, sc.x + opp.x*sc.w, Math.min(sc.y, s.clip), bh,
-               (opp.lean||0), BIKES[opp.color||0], Math.min(0.78, s.fog*0.95),
+               (opp.lean||0), bike(opp.color), Math.min(0.78, s.fog*0.95),
                opp.wheel||0, false, false, 0.5);
     }
   }
@@ -2249,7 +2318,7 @@ const G = {
   role:null, code:"", room:null,
   peerState:null, peerSeen:0,
   finishWait:0, result:null,
-  challenge:false, tour:null, tourRace:false, spent:[],
+  challenge:false, tour:null, tourRace:false, spent:[], sides:null,
   lastSend:0, lastPoll:0, rafId:0, lastT:0
 };
 
@@ -2360,7 +2429,11 @@ function paintRoster(){
       gb.addEventListener("click", ()=>{
         audio();
         const d = "손님 " + i;
-        if (CFG.roster.some((x,k)=> k !== i && x.name === d)) return;
+        if (CFG.roster.some((x,k)=> k !== i && x.name === d)){
+          $("#roster-note").textContent =
+            "다른 자리가 이미 「" + d + "」예요. 그 자리 이름을 먼저 바꿔주세요.";
+          sfx.beep(200,0.2,0.2); return;
+        }
         r.name = d; r.rating = 0; saveCfg(); paintRoster(); sfx.beep(400,0.1);
         $("#roster-note").textContent = "손님 자리를 비웠어요.";
       });
@@ -2421,11 +2494,29 @@ $("#btn-savenames").addEventListener("click", ()=>{
 function openBoard(){
   const b = loadBoard(), keys2 = Object.keys(b).sort().reverse();
   const wrap = $("#board"); wrap.innerHTML = "";
-  if (!keys2.length){
-    $("#board-note").textContent = "아직 기록이 없어요. 한 판 하고 오면 여기에 쌓입니다.";
-  } else {
-    $("#board-note").textContent = "만난 날마다 이긴 횟수가 쌓여요.";
-  }
+  // 혼자 연습 최고 기록 — 코스마다 제일 빠른 한 명
+  const bests = loadBest();
+  let anyBest = false;
+  TRACK_DEFS.forEach((t,ti)=>{
+    let who = null, ms = Infinity;
+    Object.keys(bests).forEach(k=>{
+      const q = k.lastIndexOf("|");
+      if (q <= 0 || (k.slice(q+1)|0) !== ti) return;
+      if (bests[k] < ms){ ms = bests[k]; who = k.slice(0,q); }
+    });
+    if (!who) return;
+    if (!anyBest){ el("p","lbl",wrap,"혼자 연습 최고 기록"); anyBest = true; }
+    const row = el("div","brow",wrap);
+    el("div","d",row, t.name);
+    const cell = el("div","wins",row);
+    const sb = el("div","s lead",cell);
+    el("span","",sb).textContent = who;
+    el("b","",sb).textContent = (ms/1000).toFixed(2) + "초";
+  });
+  $("#board-note").textContent = (keys2.length || anyBest)
+    ? "만난 날마다 이긴 횟수가 쌓여요. 혼자 연습 기록은 코스마다 제일 빠른 한 명입니다."
+    : "아직 기록이 없어요. 한 판 하고 오면 여기에 쌓입니다.";
+  if (keys2.length && anyBest) el("p","lbl",wrap,"날마다 이긴 횟수");
   const td = today();
   keys2.slice(0,40).forEach(k=>{
     const r = (b[k] && typeof b[k] === "object") ? b[k] : {};
@@ -2555,16 +2646,23 @@ let entryVal = "";
 function drawEntry(){
   $("#entry").textContent = (entryVal + "____").slice(0,4);
   $("#join-state").textContent = entryVal.length === 4
-    ? "✓를 누르면 들어가요" : "번호 4자리를 넣어주세요";
+    ? "초록 체크를 누르면 들어가요" : "번호 4자리를 넣어주세요";
 }
 (function buildKeypad(){
   const kp = $("#keypad");
-  ["1","2","3","4","5","6","7","8","9","⌫","0","✓"].forEach(k=>{
-    const b = el("button","",kp,k); b.type="button";
+  ["1","2","3","4","5","6","7","8","9","del","0","ok"].forEach(k=>{
+    const digit = /^[0-9]$/.test(k);
+    const b = el("button","",kp, digit ? k : ""); b.type="button";
+    if (!digit){
+      b.setAttribute("aria-label", k === "del" ? "한 자 지우기" : "이 번호로 들어가기");
+      const kc = document.createElement("canvas");
+      kc.width = 96; kc.height = 96; b.appendChild(kc);
+      drawIcon(kc.getContext("2d"), k, 96, 96);
+    }
     b.addEventListener("click", ()=>{
       audio();
-      if (k === "⌫") entryVal = entryVal.slice(0,-1);
-      else if (k === "✓"){ if (entryVal.length === 4) tryJoin(entryVal); return; }
+      if (k === "del") entryVal = entryVal.slice(0,-1);
+      else if (k === "ok"){ if (entryVal.length === 4) tryJoin(entryVal); return; }
       else if (entryVal.length < 4) entryVal += k;
       drawEntry();      // 네 자리째에 자동 입장하지 않는다 — 틀렸을 때 고칠 틈을 준다
     });
@@ -2742,8 +2840,10 @@ function startSetup(mode){
 function paintSetupStatus(){
   const n = $("#setup-note");
   if (G.mode !== "net"){
-    n.textContent = G.mode === "split"
-      ? "기기를 책상에 놓고 양쪽에서 하면 편해요."
+    if (G.mode === "split"){ n.textContent = "기기를 책상에 놓고 양쪽에서 하면 편해요."; return; }
+    const me = rider(CFG.pickA), bt = bestOf(me.name, G.trackIdx);
+    n.textContent = bt
+      ? me.name + "의 " + TRACK_DEFS[G.trackIdx].name + " 최고 기록 " + (bt/1000).toFixed(2) + "초 — 깨보자!"
       : "브레이크를 잡고 코너를 돌면 부스트가 차요.";
     return;
   }
@@ -2810,7 +2910,7 @@ function tourShare(){
 function bikeChip(host, colorIdx){
   const c = document.createElement("canvas");
   c.width = 110; c.height = 110; host.appendChild(c);
-  drawBike(c.getContext("2d"), 55, 103, 88, 0, BIKES[clamp(colorIdx|0,0,BIKES.length-1)], 1, 0, false);
+  drawBike(c.getContext("2d"), 55, 103, 88, 0, bike(colorIdx), 1, 0, false);
   return c;
 }
 function paintTour(){
@@ -2911,7 +3011,8 @@ function fillRiders(wrap, which){
     ? (which === "A" ? riderIdx(CFG.pickB) : riderIdx(CFG.pickA))
     : peerPickIdx();
   CFG.roster.forEach((r,i)=>{
-    const btn = el("button","riderpick",wrap); btn.type = "button";
+    const cell = el("div","ridercell",wrap);
+    const btn = el("button","riderpick",cell); btn.type = "button";
     const en = energyOf(i);
     btn.setAttribute("aria-pressed", String(i === cur));
     btn.setAttribute("aria-label", r.name + " — " + BIKES[r.color].name + " 오토바이, 오늘 "
@@ -2937,12 +3038,12 @@ function fillRiders(wrap, which){
       const open = (ev)=>{ ev.stopPropagation(); ev.preventDefault(); audio(); openRename(which, i); };
       pen.addEventListener("click", open);
       pen.addEventListener("keydown", e=>{ if (e.key === "Enter" || e.key === " ") open(e); });
-      btn.appendChild(pen);
+      cell.appendChild(pen);
     }
     btn.addEventListener("click", ()=>{
       audio();
       if (which === "A") CFG.pickA = i; else CFG.pickB = i;
-      saveCfg(); clearReady(); paintRiders(); sendPresence(true); sfx.beep(660,0.1);
+      saveCfg(); clearReady(); paintRiders(); paintSetupStatus(); sendPresence(true); sfx.beep(660,0.1);
       // 아직 아무도 안 쓴 손님 자리면 이름부터 짓는다 — 연필을 못 찾아도 걸린다
       if (unnamed(CFG.roster[i].name)) openRename(which, i);
     });
@@ -3069,7 +3170,8 @@ function paintTracks(){
     btn.setAttribute("aria-label", t.name + " 코스");
     btn.setAttribute("aria-pressed", String(i === G.trackIdx));
     btn.addEventListener("click", ()=>{
-      audio(); G.trackIdx = i; CFG.track = i; saveCfg(); paintTracks(); sendPresence(true); sfx.beep(540,0.1);
+      audio(); G.trackIdx = i; CFG.track = i; saveCfg();
+      paintTracks(); paintSetupStatus(); sendPresence(true); sfx.beep(540,0.1);
     });
   });
 }
@@ -3185,6 +3287,7 @@ function beginCountdown(data){
       newPlayer({label:rb.name, colorIdx:rb.color, side:"b", ridx:riderIdx(CFG.pickB),
                  assist:rb.assist !== false, hs:hb.s, ha:hb.a})
     ];
+    G.sides = {a:{n:ra.name, c:ra.color}, b:{n:rb.name, c:rb.color}};
   } else if (G.mode === "net"){
     // 누가 어느 기기에 타는지도, 점수도 host가 보낸 go에 실려 온다
     const host = G.role === "host";
@@ -3202,10 +3305,14 @@ function beginCountdown(data){
                              side: host ? "b" : "a",
                              ridx: idx >= 0 ? idx : null,
                              assist: local.assist !== false, hs:h.s, ha:h.a}) ];
+    // 양쪽 이름·색은 host가 보낸 go에 실려 와서 두 기기가 똑같다
+    G.sides = {a:{n:String(data.na || "상대"), c:clamp(data.ca|0, 0, BIKES.length-1)},
+               b:{n:String(data.nb || "상대"), c:clamp(data.cb|0, 0, BIKES.length-1)}};
   } else {
     const me = rider(CFG.pickA);
     G.players = [ newPlayer({label:me.name, colorIdx:me.color, side:"a",
                              ridx:riderIdx(CFG.pickA), assist:me.assist !== false}) ];
+    G.sides = {a:{n:me.name, c:me.color}};
   }
   G.result = null; G.finishWait = 0; G.goFlash = 0;
   G.raceMs = 0; G.count = 3.0; G.phase = "race";
@@ -3327,10 +3434,10 @@ function frame(now){
   if (G.mode === "split"){
     const [a,b] = G.players;
     const gap = clamp((progressOf(a)-progressOf(b))*4.5, -1, 1);
-    a.rubber = 1 - gap*0.05; b.rubber = 1 + gap*0.08;
+    a.rubber = 1 - gap*RUBBER; b.rubber = 1 + gap*RUBBER;
   } else if (G.mode === "net"){
     const pp = peerProgress(), me = G.players[0];
-    if (pp != null){ const gap = clamp((progressOf(me)-pp)*4.5,-1,1); me.rubber = 1 - gap*0.065; }
+    if (pp != null){ const gap = clamp((progressOf(me)-pp)*4.5,-1,1); me.rubber = 1 - gap*RUBBER; }
     else me.rubber = 1;
   }
 
@@ -3349,7 +3456,7 @@ function frame(now){
         const ht = me.finished ? me.finishMs : null, gt = pf || null;
         const win = (gt != null && (ht == null || gt <= ht)) ? "a" : "b";
         const payload = { a:gt, b:ht, win:win,
-                          na: sideRider("a").name, nb: me.label };
+                          na: sideRider("a").name, nb: sideRider("b").name };
         try{ G.room.emit("res", payload); }catch(e){}
         recordWin(win === "a" ? payload.na : payload.nb);
         applyRating(win === "a" ? payload.na : payload.nb,
@@ -3418,8 +3525,8 @@ function paintHud(now){
     else {
       h.pB.hidden = false;
       h.pB.style.left = clamp(otherProg,0,1)*100+"%";
-      const oc = G.mode === "split" ? BIKES[G.players[1-i].colorIdx].body
-                                    : BIKES[(G.peerState && G.peerState.color)||0].body;
+      const oc = G.mode === "split" ? bike(G.players[1-i].colorIdx).body
+                                    : bike(G.peerState && G.peerState.color).body;
       h.pB.style.background = oc;
       h.pB.style.opacity = "0.75";
     }
@@ -3458,16 +3565,23 @@ function showResult(r){
   const tro = mkCanvas($("#res-trophy"), 132, 120);
   const bikeCard = (host, colorIdx)=>{
     const c = mkCanvas(host, 110, 110);
-    drawBike(c, 55, 103, 88, 0, BIKES[colorIdx], 1, 0, false);
+    drawBike(c, 55, 103, 88, 0, bike(colorIdx), 1, 0, false);
   };
   if (r && r.solo){
     drawFlagArt(tro, 132, 120);
-    $("#res-winner").textContent = "완주!";
     const me = G.players[0] || {label:"", colorIdx:0};
+    const prev = bestOf(me.label, G.trackIdx);
+    const isNew = (r.t != null) && (prev == null || r.t < prev);
+    if (isNew) saveBest(me.label, G.trackIdx, r.t);
+    $("#res-winner").textContent = isNew ? "신기록!" : "완주!";
     const c = el("div","timecard win",wrap);
     bikeCard(el("div","bk",c), me.colorIdx);
     el("div","who",c).textContent = me.label;
     el("div","t",c,fmt(r.t));
+    // 깬 기록(또는 아직 못 깬 기록)을 같은 카드에 붙인다 — 도전할 대상이 보여야 한다
+    el("div","who",c).textContent = isNew
+      ? (prev == null ? "첫 기록!" : "지난 기록 " + fmt(prev))
+      : "최고 기록 " + fmt(prev);
   } else {
     const win = r.win;
     // 이름은 판정한 쪽(host/split)이 결과에 실어 보낸다 — 양쪽이 같게 보이도록
@@ -3567,6 +3681,7 @@ addEventListener("gesturestart", e=> e.preventDefault());
 
 /* ---------- boot ---------- */
 function start(saved){
+  document.documentElement.lang = "ko";   // 파일에 <html>이 없다(아티팩트가 감싼다)
   loadCfg();
   if (saved && saved.cfg) Object.assign(CFG, saved.cfg);
   restoreTilt();
