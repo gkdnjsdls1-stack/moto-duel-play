@@ -369,6 +369,9 @@ p.note b{color:var(--ink);font-weight:400}
 .hud .laps{display:flex;gap:4px;align-items:center}
 .lapdot{width:clamp(8px,1.4vh,12px);aspect-ratio:1;border-radius:50%;border:2px solid #f6efe299}
 .lapdot.on{background:var(--gold);border-color:var(--gold)}
+/* 남은 기회 — 바퀴 칸과 같은 모양, 색만 다르다(금색=바퀴, 빨강=남은 기회) */
+.hud .dmg{margin-left:3px}
+.lapdot.hit.on{background:var(--hot);border-color:var(--hot)}
 .hud .clk{font-size:clamp(12px,2.1vh,18px)}
 
 .prog{
@@ -827,7 +830,8 @@ function loadBoard(){ try{ return JSON.parse(localStorage.getItem("moto1.board")
 function saveBoard(b){ try{ localStorage.setItem("moto1.board", JSON.stringify(b)); }catch(e){} }
 /* 혼자 연습의 최고 기록 — 「기록에 도전」이 말이 되려면 남아야 한다.
    키는 선수 이름 + 코스. 이름이 키라는 규칙을 여기서도 따른다. */
-function loadBest(){ try{ return JSON.parse(localStorage.getItem("moto1.best")||"{}") || {}; }catch(e){ return {}; } }
+/* 키에 바퀴 수가 들어간다 — 2바퀴 기록과 1바퀴 기록은 비교할 수 없다 */
+function loadBest(){ try{ return JSON.parse(localStorage.getItem("moto1.best1")||"{}") || {}; }catch(e){ return {}; } }
 function bestOf(name, ti){
   const v = loadBest()[String(name) + "|" + (ti|0)];
   return (typeof v === "number" && v > 0) ? v : null;
@@ -836,7 +840,7 @@ function saveBest(name, ti, ms){
   try{
     const b = loadBest();
     b[String(name) + "|" + (ti|0)] = Math.round(ms);
-    localStorage.setItem("moto1.best", JSON.stringify(b));
+    localStorage.setItem("moto1.best1", JSON.stringify(b));
   }catch(e){}
 }
 function today(){ const d=new Date(); const p=n=>String(n).padStart(2,"0");
@@ -936,7 +940,8 @@ const OFF_DECEL = -MAX_SPEED/1.7, OFF_LIMIT = MAX_SPEED/3.7;
    느낌이 안 맞으면 이 네 개만 만진다 — 다른 데 손대면 핸디캡 눈금이 같이 틀어진다. */
 const BOOST_MUL = 1.5, BOOST_TIME = 3.0;
 const DRIFT_CHARGE = 1.4;
-const LAPS = 2;
+const LAPS = 1;          // 2바퀴(약 1분 30초)는 어린 아이에게 길었다 — 한 바퀴 약 45초
+const MAX_HITS = 3;      // 라바콘을 세 번 치면 그 자리에서 끝
 /* 뒤처진 쪽을 조금 밀어주는 보정. 좌우·양 기기가 같은 값이어야 한다 —
    예전에는 반반 모드만 0.05/0.08로 갈려서 오른쪽 아이가 늘 60% 더 세게 보정받았다. */
 const RUBBER = 0.065;
@@ -1071,6 +1076,17 @@ function makeTrack(i){
         segs[n].objs.push({ kind:k2, off: -side*(1.22 + r()*1.9), sz: 0.5+r()*0.7 });
       }
     }
+  }
+  /* 길 위의 라바콘. 급코너에는 두지 않는다 — 피할 자리가 없으면 운이지 실력이 아니다.
+     140칸(약 2.3초)에 하나, 한 바퀴에 스무 개쯤. 세 칸(왼·가운데·오른쪽) 중 하나에 선다. */
+  let since = 0;
+  for (let n=40; n<segs.length-60; n++){
+    if (++since < 140) continue;
+    if (Math.abs(segs[n].curve) > 2.2) continue;
+    const lane = [-0.62, 0, 0.62][Math.floor(r()*3)];
+    segs[n].cone = {off:lane};
+    segs[n].objs.push({kind:"cone", off:lane, sz:0.5});
+    since = 0;
   }
   // 출발·결승선 — 매 바퀴 여기를 지난다
   for (let n=0;n<3;n++) segs[n].finish = true;
@@ -1533,7 +1549,7 @@ function newPlayer(o){
     throttle:0, brake:0, steer:0, gasHeld:false, gasGrace:0,
     boost:0, boosting:0, drifting:false,
     recovering:0, offT:0, bump:0,
-    finished:false, finishMs:0,
+    finished:false, finishMs:0, hits:0, out:false,
     lastSeg:0, gatePassed:-1,
     assist:false, hs:1, ha:1, rubber:1,
     wheel:0, toast:null, toastT:0, engine:null, shake:0
@@ -1618,10 +1634,37 @@ function stepPlayer(p, dt, tk){
     p.gatePassed = p.lap;
     if (p.speed < MAX_SPEED*0.42){ p.boost = Math.min(1, p.boost + 0.62); sfx.ding(); say(p,"천천히 성공!"); }
   }
+  /* 라바콘 — 한 프레임에 칸을 서너 개 건너뛰므로 지나온 칸을 훑는다 */
+  if (segIdx !== p.lastSeg){
+    const N = tk.segs.length;
+    for (let n=1; n<=6; n++){
+      const k = (p.lastSeg + n) % N;
+      const c = tk.segs[k].cone;
+      if (c && Math.abs(p.x - c.off) < 0.26){ hitCone(p); break; }
+      if (k === segIdx) break;
+    }
+  }
   p.lastSeg = segIdx;
 
   while (p.position >= tk.length){ p.position -= tk.length; p.lap++; onLap(p); }
   if (p.toastT > 0) p.toastT -= dt;
+}
+/* 치면 크게 느려지고 남은 칸이 하나 꺼진다. 세 번이면 거기서 끝 — 완주로 치지 않는다(기록 없음). */
+function hitCone(p){
+  if (p.finished) return;
+  p.hits++;
+  p.speed *= 0.3;
+  p.boost = 0; p.boosting = 0;
+  p.bump = 1; p.shake = 1;
+  sfx.thud();
+  if (p.hits >= MAX_HITS){
+    p.out = true; p.finished = true; p.finishMs = null; p.speed = 0;
+    say(p, "아웃!");
+    sfx.beep(160, 0.4, 0.28);
+    onFinish(p);
+  } else {
+    say(p, "쿵! " + (MAX_HITS - p.hits) + "번 남았어");
+  }
 }
 function crossed(a,b,target,n){
   if (a === b) return false;
@@ -1883,6 +1926,16 @@ function drawObj(c, s, o, C, clipY){
       checkerPatch(c, x-span+u*0.05, y-top+u*0.06, span*2-u*0.1, bh-u*0.12, 12);
       break;
     }
+    case "cone":
+      c.fillStyle = "#ff5a1f";
+      c.beginPath();
+      c.moveTo(x, y-H*0.95); c.lineTo(x+u*0.14, y); c.lineTo(x-u*0.14, y);
+      c.closePath(); c.fill();
+      c.fillStyle = "#f6efe2";
+      c.fillRect(x-u*0.07, y-H*0.46, u*0.14, H*0.16);
+      c.fillStyle = "#1b1420";
+      c.fillRect(x-u*0.19, y-H*0.05, u*0.38, H*0.07);
+      break;
     case "slowsign":
       c.strokeStyle="#8d93a8"; c.lineWidth=u*0.03;
       c.beginPath(); c.moveTo(x,y); c.lineTo(x,y-H*0.8); c.stroke();
@@ -2028,6 +2081,9 @@ function buildHud(){
     h.laps = el("div","laps",h.top);
     h.lapdots = [];
     for (let k=0;k<LAPS;k++) h.lapdots.push(el("i","lapdot",h.laps));
+    h.dmg = el("div","laps dmg",h.top);
+    h.dmgDots = [];
+    for (let k=0;k<MAX_HITS;k++) h.dmgDots.push(el("i","lapdot hit on",h.dmg));
     h.clk = el("div","clk",h.top,"0.00");
     h.prog = el("div","prog",hudLayer);
     h.pA = el("i","",h.prog); h.pB = el("i","",h.prog);
@@ -2812,7 +2868,8 @@ function sendPresence(force){
     pat.sp = Math.round(p.speed);
     pat.ln = Math.round(p.lean*100)/100;
     pat.wh = Math.round(p.wheel*10)/10;
-    pat.fin = p.finished ? Math.round(p.finishMs) : 0;
+    pat.fin = (p.finished && !p.out) ? Math.round(p.finishMs) : 0;
+    pat.out = p.out ? 1 : 0;
   }
   try{ G.room.presence(pat); }catch(e){}
 }
@@ -3331,13 +3388,15 @@ function onFinish(p){
     setTimeout(()=> showResult({solo:true, t:p.finishMs}), 900);
   } else {
     const other = G.players.find(q=> q !== p);
-    if (other && other.finished) setTimeout(()=> finishSplit(), 700);
+    // 아웃이면 거기서 판이 끝난다 — 남은 아이를 혼자 달리게 두지 않는다
+    if (p.out || (other && other.finished)) setTimeout(()=> finishSplit(), 700);
     else G.finishWait = 0.01;
   }
 }
 function finishSplit(){
   const [a,b] = G.players;
-  const at = a.finished ? a.finishMs : null, bt = b.finished ? b.finishMs : null;
+  const at = (a.finished && !a.out) ? a.finishMs : null,
+        bt = (b.finished && !b.out) ? b.finishMs : null;
   const win = (at != null && (bt == null || at <= bt)) ? "a" : "b";
   const margin = (at != null && bt != null) ? Math.abs(at - bt) : 15000;
   recordWin(win === "a" ? a.label : b.label);
@@ -3427,10 +3486,11 @@ function frame(now){
   if (G.mode === "net" && G.role === "host" && !G.result && G.raceMs > 1500){
     const me = G.players[0];
     const pf = (G.peerState && G.peerState.fin) ? G.peerState.fin : 0;
-    if (me.finished || pf){
+    const pOut = !!(G.peerState && G.peerState.out);
+    if (me.finished || pf || pOut){
       G.finishWait += dt;
-      if ((me.finished && pf) || G.finishWait > 22 || !peerOnline()){
-        const ht = me.finished ? me.finishMs : null, gt = pf || null;
+      if ((me.finished && (pf || pOut)) || G.finishWait > 22 || !peerOnline()){
+        const ht = (me.finished && !me.out) ? me.finishMs : null, gt = pOut ? null : (pf || null);
         const win = (gt != null && (ht == null || gt <= ht)) ? "a" : "b";
         const payload = { a:gt, b:ht, win:win,
                           na: sideRider("a").name, nb: sideRider("b").name };
@@ -3486,7 +3546,8 @@ function paintHud(now){
       : (place === 1 ? "①" : "②");
     h.place.style.color = place === 1 ? "var(--gold)" : "#fff";
     // 켜진 칸 = 끝낸 바퀴. p.lap은 1에서 시작하므로 출발하자마자 켜지면 안 된다
-    for (let k=0;k<LAPS;k++) h.lapdots[k].classList.toggle("on", p.finished || p.lap > k+1);
+    for (let k=0;k<LAPS;k++) h.lapdots[k].classList.toggle("on", (p.finished && !p.out) || p.lap > k+1);
+    for (let k=0;k<MAX_HITS;k++) h.dmgDots[k].classList.toggle("on", k < MAX_HITS - p.hits);
     h.clk.textContent = (G.raceMs/1000).toFixed(2);
     h.name.textContent = p.label;
     h.spdNum.textContent = Math.round(p.speed/MAX_SPEED*180);
@@ -3549,15 +3610,16 @@ function showResult(r){
     const prev = bestOf(me.label, G.trackIdx);
     const isNew = (r.t != null) && (prev == null || r.t < prev);
     if (isNew) saveBest(me.label, G.trackIdx, r.t);
-    $("#res-winner").textContent = isNew ? "신기록!" : "완주!";
+    $("#res-winner").textContent = (r.t == null) ? "아웃!" : (isNew ? "신기록!" : "완주!");
     const c = el("div","timecard win",wrap);
     bikeCard(el("div","bk",c), me.colorIdx);
     el("div","who",c).textContent = me.label;
     el("div","t",c,fmt(r.t));
     // 깬 기록(또는 아직 못 깬 기록)을 같은 카드에 붙인다 — 도전할 대상이 보여야 한다
-    el("div","who",c).textContent = isNew
-      ? (prev == null ? "첫 기록!" : "지난 기록 " + fmt(prev))
-      : "최고 기록 " + fmt(prev);
+    el("div","who",c).textContent = (r.t == null)
+      ? "라바콘 " + MAX_HITS + "번 — 다시 해보자!"
+      : (isNew ? (prev == null ? "첫 기록!" : "지난 기록 " + fmt(prev))
+               : "최고 기록 " + fmt(prev));
   } else {
     const win = r.win;
     // 이름은 판정한 쪽(host/split)이 결과에 실어 보낸다 — 양쪽이 같게 보이도록
