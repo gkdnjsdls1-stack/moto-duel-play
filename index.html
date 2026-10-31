@@ -209,20 +209,8 @@ p.note b{color:var(--ink);font-weight:400}
   background:linear-gradient(180deg,#44331f,#2b2032);
 }
 .riderpick[aria-pressed="true"] span{color:var(--gold)}
-/* 「내일 또」는 중요한 상태다 — opacity .34에서는 대비가 2.6:1이라 안 읽혔다 */
 .riderpick[disabled]{opacity:.62}
 .riderpick[disabled] span{color:var(--ink)}
-.riderpick[disabled] .zzz{color:var(--gold)}
-/* 남은 판 수 — 아이가 글자를 못 읽어도 칸으로 보인다 */
-.pips{display:flex;gap:3px;justify-content:center;padding:0 0 5px}
-.pips i{width:clamp(6px,1.1vh,9px);aspect-ratio:1;border-radius:50%;
-  background:#0000;border:1.5px solid var(--edge)}
-.pips i.on{background:var(--go);border-color:var(--go)}
-.riderpick .zzz{
-  padding:0 0 4px;font-size:clamp(9px,1.4vh,12px);color:var(--dim);
-}
-.energyline{margin:0;font-size:clamp(11px,1.8vh,14px);color:var(--dim);text-align:center}
-.energyline b{color:var(--go);font-weight:400}
 
 /* 자기 카드에 붙는 연필 — 누르면 이름 정하는 화면 */
 .ridercell .pen{
@@ -579,7 +567,6 @@ input[type=text]:focus{outline:none;border-color:var(--gold);border-left-color:v
       <button class="big" data-go="split"><span class="ic" data-icon="onedev"></span><span class="tx"><b>한 기기로 둘이</b><small>화면을 반으로 나눠서</small></span></button>
       <button class="big" data-go="solo"><span class="ic" data-icon="solo"></span><span class="tx"><b>혼자 연습</b><small>기록에 도전</small></span></button>
     </div>
-    <p class="energyline" id="home-energy"></p>
     <div class="row">
       <button class="mini" data-go="board">기록판</button>
       <button class="mini" data-go="names">선수 명단</button>
@@ -706,12 +693,10 @@ input[type=text]:focus{outline:none;border-color:var(--gold);border-left-color:v
     <div class="field" style="width:min(300px,100%)"><span class="lbl">게임 이름</span><input type="text" id="in-game" maxlength="14" autocomplete="off"></div>
     <div class="roster" id="roster"></div>
     <p class="note" id="roster-note"><b>막내</b>만 고정 캐릭터고 나머지 셋은 손님 자리예요 — 타는 아이가 이름을 직접 지어요. 실력은 <b>경기 결과가 알아서 정합니다.</b> 모두 같은 자리에서 시작해서, 이긴 쪽이 올라가고 진 쪽이 내려가요. 서너 판이면 저절로 비슷해집니다. 「보조」는 핸들 보정과 자동 가속이라 어린 아이는 켜두세요.</p>
-    <p class="energyline" id="energy-line"></p>
     <div class="row">
       <button class="start" id="btn-savenames">저장</button>
       <button class="mini" id="btn-sound">소리 켬</button>
       <button class="mini" id="btn-resetratings">실력 처음으로</button>
-      <button class="mini" id="btn-refill">에너지 채우기</button>
     </div>
     <button class="ghost" data-go="home">← 처음으로</button>
   </section>
@@ -736,17 +721,16 @@ const lerp = (a,b,t)=> a+(b-a)*t;
 
 /* ---------- storage ---------- */
 const CFG_VER = 6;   // 막내만 캐릭터, 나머지 셋은 손님 자리가 된 판
-const MAX_ENERGY = 3;   // 아이 한 명이 하루에 탈 수 있는 판 수
 /* 어른이 실력을 추측해 넣지 않는다. 모두 0에서 시작해서 경기 결과가 점수를 움직이고,
    두 선수의 점수 차이가 곧 봐주기 세기가 된다. 몇 판이면 저절로 맞는다. */
 /* 막내만 고정 캐릭터다. 나머지 셋은 손님 자리 — 그날 타는 아이가 자기 이름을 짓는다.
    이름이 실력·에너지·기록의 키라서 빈 이름을 둘 수는 없다. 그래서 「손님 N」을
    기본값으로 두고, 그 자리를 고르면 이름 화면이 먼저 뜬다. */
 const DEF_ROSTER = [
-  {name:"막내",   color:0, rating:0, assist:true, energy:MAX_ENERGY},
-  {name:"손님 1", color:3, rating:0, assist:true, energy:MAX_ENERGY},
-  {name:"손님 2", color:2, rating:0, assist:true, energy:MAX_ENERGY},
-  {name:"손님 3", color:4, rating:0, assist:true, energy:MAX_ENERGY}
+  {name:"막내",   color:0, rating:0, assist:true},
+  {name:"손님 1", color:3, rating:0, assist:true},
+  {name:"손님 2", color:2, rating:0, assist:true},
+  {name:"손님 3", color:4, rating:0, assist:true}
 ];
 const OLD_PRESETS = ["첫째","둘째","셋째"];
 /* 아직 아무도 이름을 안 지은 손님 자리인가 */
@@ -758,7 +742,7 @@ function unnamed(nm){ return /^손님 [1-3]$/.test(String(nm||"")); }
 const MOJI = /[\u00C0-\u00FF][\u0080-\u00FF\u0152-\u017E\u02C6-\u02DC\u2018-\u201D\u2122]/;
 function sane(v, fallback){ return MOJI.test(String(v == null ? "" : v)) ? fallback : v; }
 const DEF_CFG = {ver:CFG_VER, game:"오토바이 대결", tilt:false, sound:true, track:0,
-                 roster:DEF_ROSTER, pickA:0, pickB:1, energyDate:"",
+                 roster:DEF_ROSTER, pickA:0, pickB:1,
                  hostCode:"", lastCode:""};
 let CFG = Object.assign({}, DEF_CFG);
 function loadCfg(){
@@ -768,7 +752,7 @@ function loadCfg(){
        예전 기본 이름(첫째·둘째·셋째)만 버린다. 실력은 전적으로 다시 쌓으므로 0에서 시작. */
     const keep = Array.isArray(CFG.roster) ? CFG.roster : [];
     CFG.roster = DEF_ROSTER.map(d=>({name:d.name, color:d.color, rating:0,
-                                     assist:true, energy:MAX_ENERGY}));
+                                     assist:true}));
     // 0(빨강)도 유효한 색이라 || 로 기본값을 고르면 빨강을 고른 아이가 색을 잃는다
     const col = r => (r && typeof r.color === "number") ? clamp(r.color|0, 0, BIKES.length-1) : null;
     const mine = keep.find(r=> r && r.name === "막내");
@@ -799,60 +783,10 @@ function loadCfg(){
     name: String(sane((r && r.name) || DEF_ROSTER[i].name, DEF_ROSTER[i].name)).slice(0,8),
     color: clamp((r && r.color)|0, 0, BIKES.length-1),
     rating: clamp(Number(r && r.rating) || 0, -RATING_CAP, RATING_CAP),
-    assist: (r && r.assist) !== false,
-    energy: clamp((r && typeof r.energy === "number") ? r.energy : MAX_ENERGY, 0, MAX_ENERGY)
+    assist: (r && r.assist) !== false
   }));
-  energyRefresh();
 }
 
-/* ---------- 에너지 ----------
-   날짜가 바뀌면 저절로 다 찬다. 2대 모드에서는 host가 쥔 값이 기준이고,
-   상대 기기는 presence로 받은 값을 보여준다(이름으로 찾으므로 명단 순서가 달라도 된다). */
-function energyRefresh(){
-  const t = today();
-  if (CFG.energyDate === t) return false;
-  CFG.energyDate = t;
-  CFG.roster.forEach(r=> r.energy = MAX_ENERGY);
-  saveCfg();
-  return true;
-}
-function energyMap(){
-  const m = {};
-  CFG.roster.forEach(r=> m[r.name] = clamp(r.energy|0, 0, MAX_ENERGY));
-  return m;
-}
-function energyOf(i){
-  const r = CFG.roster[i]; if (!r) return 0;
-  if (G.mode === "net" && G.role === "guest"){
-    const en = G.peerState && G.peerState.en;
-    if (en && typeof en[r.name] === "number") return clamp(en[r.name], 0, MAX_ENERGY);
-  }
-  return clamp(r.energy|0, 0, MAX_ENERGY);
-}
-function energyByName(nm){
-  const i = CFG.roster.findIndex(r=> r.name === nm);
-  return i >= 0 ? energyOf(i) : MAX_ENERGY;
-}
-function spendEnergy(idxs){
-  let changed = false;
-  G.spent = [];
-  idxs.forEach(i=>{
-    if (typeof i !== "number") return;
-    const r = CFG.roster[i];
-    if (r && r.energy > 0){ r.energy--; G.spent.push(i); changed = true; }
-  });
-  if (changed) saveCfg();
-}
-/* 끝까지 안 탄 판은 돌려준다 — 안 그러면 중간에 나갈 때마다 손해라 못 나간다 */
-function refundEnergy(){
-  if (!G.spent || !G.spent.length) return;
-  G.spent.forEach(i=>{
-    const r = CFG.roster[i];
-    if (r && r.energy < MAX_ENERGY) r.energy++;
-  });
-  G.spent = [];
-  saveCfg();
-}
 /* 받침 유무로 조사를 고른다 — "막내는", "첫째는", "둘째은"이 안 되게 */
 function josa(word, withB, withoutB){
   const ch = String(word || "").trim().slice(-1);
@@ -2318,7 +2252,7 @@ const G = {
   role:null, code:"", room:null,
   peerState:null, peerSeen:0,
   finishWait:0, result:null,
-  challenge:false, tour:null, tourRace:false, spent:[], sides:null,
+  challenge:false, tour:null, tourRace:false, sides:null,
   lastSend:0, lastPoll:0, rafId:0, lastT:0
 };
 
@@ -2356,12 +2290,7 @@ function goHome(){
   stopRace();
   leaveRoom();
   G.challenge = false; G.tour = null; G.tourRace = false;
-  energyRefresh();
   $("#gname").textContent = CFG.game || DEF_CFG.game;
-  const left = CFG.roster.reduce((s,r)=> s + (r.energy|0), 0);
-  $("#home-energy").innerHTML = left
-    ? "오늘 남은 판 <b>" + left + "</b>"
-    : "오늘은 다 탔어요 — <b>내일 또 만나요!</b>";
   show("s-home");
 }
 
@@ -2373,10 +2302,6 @@ function openNames(){
   show("s-names");
 }
 function paintRoster(){
-  energyRefresh();
-  const left = CFG.roster.reduce((s,r)=> s + (r.energy|0), 0);
-  $("#energy-line").innerHTML =
-    "오늘 남은 판 — <b>" + left + "판</b> (한 명당 하루 " + MAX_ENERGY + "판, 자정에 다시 채워져요)";
   const wrap = $("#roster"); wrap.innerHTML = "";
   CFG.roster.forEach((r,i)=>{
     const row = el("div","rrow",wrap);
@@ -2415,11 +2340,6 @@ function paintRoster(){
     chip.setAttribute("aria-label", "지금 실력 " + lvl + "단계 (전적에서 자동)");
     for (let n=1;n<=5;n++) el("i","" + (n <= lvl ? "on" : ""), chip);
 
-    const pips = el("div","pips",row);
-    pips.style.padding = "0";
-    pips.setAttribute("aria-label", "오늘 " + (r.energy|0) + "판 남음");
-    for (let q=0;q<MAX_ENERGY;q++) el("i", q < (r.energy|0) ? "on" : "", pips);
-
     // 손님 자리는 다음 친구가 쓸 수 있게 비울 수 있다. 막내는 고정 캐릭터라 없다.
     if (i > 0){
       const gb = el("button","abtn",row,"비우기");
@@ -2449,13 +2369,6 @@ function paintRoster(){
     });
   });
 }
-$("#btn-refill").addEventListener("click", ()=>{
-  audio();
-  CFG.roster.forEach(r=> r.energy = MAX_ENERGY);
-  CFG.energyDate = today();
-  saveCfg(); paintRoster(); sendPresence(true); sfx.chord([523,659,784],0.22);
-  $("#roster-note").textContent = "오늘 에너지를 다시 채웠어요.";
-});
 function paintSound(){
   const b = $("#btn-sound"), on = CFG.sound !== false;
   b.classList.toggle("on", on);
@@ -2586,9 +2499,6 @@ function hostGo(){
     B = rider(CFG.pickA);
     A = {name:String(opp.nm || "상대"), color:(opp.color|0)||0, rating:Number(opp.rt)||0};
   }
-  // host가 양쪽 에너지를 깎는다 (상대 선수는 이름으로 찾는다)
-  spendEnergy([CFG.roster.findIndex(r=> r.name === A.name),
-               CFG.roster.findIndex(r=> r.name === B.name)].filter(i=> i >= 0));
   const payload = {trk:G.trackIdx, t:Date.now(),
                    ch: (G.challenge || !!opp.ch) ? 1 : 0,
                    tr: m ? 1 : 0,
@@ -2784,7 +2694,6 @@ function sendPresence(force){
   if (G.role === "host"){
     pat.trk = G.trackIdx; pat.st = G.phase;
     pat.tr = G.tour ? tourShare() : null;     // 대진표의 "다음 경기"만 보낸다
-    pat.en = energyMap();                     // 에너지는 host 값이 기준
   }
   if (p && (G.phase === "race")){
     pat.z = Math.round(p.position);
@@ -2823,6 +2732,7 @@ function startSetup(mode){
   G.mode = mode;
   if (mode !== "net"){ G.role = null; leaveRoom(); }
   G.trackIdx = clamp(CFG.track|0, 0, 2);
+  if (G.mode === "solo") CFG.pickA = 0;
   if (G.mode === "split" && riderIdx(CFG.pickA) === riderIdx(CFG.pickB))
     CFG.pickB = (riderIdx(CFG.pickA) + 1) % CFG.roster.length;
   paintRiders(); paintTracks();
@@ -2903,8 +2813,8 @@ function tourShare(){
   }
   const m = tourCur(), ra = rider(m.a), rb = rider(m.b);
   return {done:0, i:G.tour.i, lb:TOUR_LABELS[G.tour.i],
-          na:ra.name, ca:ra.color, ea:energyOf(m.a),
-          nb:rb.name, cb:rb.color, eb:energyOf(m.b)};
+          na:ra.name, ca:ra.color,
+          nb:rb.name, cb:rb.color};
 }
 
 function bikeChip(host, colorIdx){
@@ -2946,14 +2856,11 @@ function paintTour(){
     card.className = "nextcard";
     el("span","lbl",card, share.lb);
     const mineIsA = guest;                       // guest가 a쪽, host/왼쪽이 b쪽
-    [["na","ca","ea",true],["nb","cb","eb",false]].forEach(([nk,ck,ek,isA],k)=>{
+    [["na","ca",true],["nb","cb",false]].forEach(([nk,ck,isA],k)=>{
       if (k === 1) el("span","vs",card,"vs");
       const w = el("div","who",card);
       bikeChip(w, share[ck]);
       const nm = el("div","nm",w); nm.textContent = share[nk];
-      const en = clamp((typeof share[ek] === "number") ? share[ek] : MAX_ENERGY, 0, MAX_ENERGY);
-      const pips = el("div","pips",w);
-      for (let q=0;q<MAX_ENERGY;q++) el("i", q < en ? "on" : "", pips);
       if (G.mode === "net" && (isA === mineIsA)) el("div","mine",w,"이 기기");
       if (G.mode === "split") el("div","mine",w, isA ? "왼쪽" : "오른쪽");
     });
@@ -2999,7 +2906,7 @@ function peerPickIdx(){
 function paintRiders(){
   const split = G.mode === "split";
   $("#colB").hidden = !split;
-  $("#lbl-a").textContent = split ? "왼쪽" : "누가 타?";
+  $("#lbl-a").textContent = split ? "왼쪽" : (G.mode === "solo" ? "" : "누가 타?");
   fillRiders($("#ridersA"), "A");
   if (split) fillRiders($("#ridersB"), "B");
   paintHcapLine();
@@ -3010,22 +2917,19 @@ function fillRiders(wrap, which){
   const other = G.mode === "split"
     ? (which === "A" ? riderIdx(CFG.pickB) : riderIdx(CFG.pickA))
     : peerPickIdx();
+  /* 혼자 연습은 1번(고정 캐릭터) 혼자 탄다 — 카드 하나만 두고, 이름은 연필로 고친다 */
+  const only = G.mode === "solo" ? 0 : -1;
   CFG.roster.forEach((r,i)=>{
+    if (only >= 0 && i !== only) return;
     const cell = el("div","ridercell",wrap);
     const btn = el("button","riderpick",cell); btn.type = "button";
-    const en = energyOf(i);
     btn.setAttribute("aria-pressed", String(i === cur));
-    btn.setAttribute("aria-label", r.name + " — " + BIKES[r.color].name + " 오토바이, 오늘 "
-                     + en + "판 남음");
+    btn.setAttribute("aria-label", r.name + " — " + BIKES[r.color].name + " 오토바이");
     if (i === other) btn.disabled = true;      // 같은 선수가 양쪽에 설 수는 없다
-    if (en <= 0) btn.disabled = true;
     const c = document.createElement("canvas");
     c.width = 110; c.height = 110; btn.appendChild(c);
     drawBike(c.getContext("2d"), 55, 103, 88, 0, BIKES[r.color], 1, 0, false);
     const sp = el("span","",btn); sp.textContent = r.name;
-    const pips = el("div","pips",btn);
-    for (let k=0;k<MAX_ENERGY;k++) el("i", k < en ? "on" : "", pips);
-    if (en <= 0){ const z = el("span","zzz",btn); z.textContent = "내일 또"; }
     // 고른 카드에만 연필 — 자기 캐릭터 이름은 자기가 정한다
     if (i === cur){
       const pen = document.createElement("span");
@@ -3054,23 +2958,6 @@ function clearReady(){
   if (G.mode !== "net" || G.role !== "guest") return;
   $("#btn-start").textContent = "준비 완료";
   if (G.room){ try{ G.room.presence({ready:null}); }catch(e){} }
-}
-/* 지금 고른 선수들이 탈 수 있는지. 못 타면 이유를 말해준다. */
-function energyReady(){
-  const note = $("#setup-note");
-  const names = [];
-  if (energyOf(riderIdx(CFG.pickA)) <= 0) names.push(rider(CFG.pickA).name);
-  if (G.mode === "split" && energyOf(riderIdx(CFG.pickB)) <= 0) names.push(rider(CFG.pickB).name);
-  if (G.mode === "net"){
-    const s = G.peerState || {};
-    if (s.nm && energyByName(String(s.nm)) <= 0) names.push(String(s.nm));
-  }
-  if (!names.length) return true;
-  const who = names.join(", ");
-  note.textContent = who + josa(names[names.length-1], "은", "는")
-                   + " 오늘 몫을 다 썼어요. 내일 또 하자!";
-  sfx.beep(200, 0.2, 0.2);
-  return false;
 }
 /* ---------- 이름 정하기 (아이가 직접) ---------- */
 let renameTarget = null;   // {which, idx, oldName}
@@ -3185,15 +3072,6 @@ $("#btn-tour").addEventListener("click", ()=>{
   audio();
   if (G.mode === "solo"){ $("#setup-note").textContent = "토너먼트는 둘 이상이 있어야 해요."; return; }
   if (G.mode === "net" && !peerOnline()){ $("#setup-note").textContent = "다른 기기가 아직 안 들어왔어요."; return; }
-  // 토너먼트는 한 아이가 2판을 탄다 — 끝까지 못 갈 사람이 있으면 아예 시작하지 않는다
-  const short = CFG.roster.filter((r,i)=> energyOf(i) < 2).map(r=> r.name);
-  if (short.length){
-    $("#setup-note").textContent =
-      short.join(", ") + josa(short[short.length-1], "은", "는")
-      + " 오늘 2판이 안 남아서 토너먼트를 끝까지 못 타요.";
-    sfx.beep(200, 0.2, 0.2);
-    return;
-  }
   G.tour = null; openTour();
 });
 $("#btn-shuffle").addEventListener("click", ()=>{
@@ -3205,15 +3083,8 @@ $("#btn-tourquit").addEventListener("click", ()=>{
 $("#btn-tourgo").addEventListener("click", ()=>{
   audio();
   if (G.mode === "net" && G.role === "guest") return;
-  if (tourDone()){
-    const short = CFG.roster.filter((r,i)=> energyOf(i) < 2).map(r=> r.name);
-    if (short.length){ $("#tour-hd").textContent = "오늘은 여기까지!"; sfx.beep(200,0.2,0.2); return; }
-    tourStart(); paintTour(); sendPresence(true); return;
-  }
+  if (tourDone()){ tourStart(); paintTour(); sendPresence(true); return; }
   const m = tourCur(); if (!m) return;
-  if (energyOf(m.a) <= 0 || energyOf(m.b) <= 0){
-    $("#tour-hd").textContent = "오늘은 여기까지!"; sfx.beep(200,0.2,0.2); return;
-  }
   if (G.mode === "split"){
     CFG.pickA = m.a; CFG.pickB = m.b;
     beginCountdown({trk:G.trackIdx});
@@ -3243,7 +3114,6 @@ $("#btn-tilt").addEventListener("click", async ()=>{
 
 $("#btn-start").addEventListener("click", ()=>{
   audio();
-  if (!energyReady()) return;
   if (G.mode === "net"){
     if (!peerOnline()){ $("#setup-note").textContent = "다른 기기가 아직 안 들어왔어요."; return; }
     const pn = (G.peerState && G.peerState.nm) || "";
@@ -3272,9 +3142,6 @@ function beginCountdown(data){
 
   if (G.mode === "net") G.challenge = !!data.ch;
   G.tourRace = (G.mode === "net") ? !!data.tr : !!G.tour;
-  // 2대 모드에서는 host가 hostGo에서 양쪽 몫을 미리 깎는다
-  if (G.mode === "split") spendEnergy([riderIdx(CFG.pickA), riderIdx(CFG.pickB)]);
-  else if (G.mode === "solo") spendEnergy([riderIdx(CFG.pickA)]);
   const free = {s:1, a:1};   // 도전 모드에서는 양쪽 다 전력
 
   if (G.mode === "split"){
@@ -3558,7 +3425,6 @@ function paintHud(now){
 /* ---------- result ---------- */
 function showResult(r){
   G.result = r || {};
-  G.spent = [];            // 끝까지 탄 판이므로 돌려줄 것이 없다
   stopRace();
   const fmt = t => t == null ? "—" : (t/1000).toFixed(2) + "초";
   const wrap = $("#res-times"); wrap.innerHTML = "";
@@ -3652,12 +3518,11 @@ $("#btn-giveup").addEventListener("click", ()=>{
   abortRace(false);
 });
 
-/* 아무도 완주하지 않았으므로 기록도 실력도 건드리지 않는다. 에너지만 돌려준다. */
+/* 아무도 완주하지 않았으므로 기록도 실력도 건드리지 않는다. */
 function abortRace(fromPeer){
   if (G.phase !== "race") return;
   G.result = {abort:1};
   stopRace();
-  refundEnergy();
   clearPause();
   sfx.beep(300, 0.18);
   if (G.tourRace && !(G.mode === "net" && G.role === "guest")) openTour();
