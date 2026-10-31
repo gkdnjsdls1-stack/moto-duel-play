@@ -1493,6 +1493,29 @@ function drawAhead(c, W, H, dir, level){
   }
 }
 
+/* 파비콘·홈 화면 아이콘 — 이모지를 안 쓰므로 나머지 아이콘과 같은 붓(bikeMini)으로 그린다.
+   아티팩트는 자기 파비콘(🏍️)을 달아주므로 밖(깃허브 Pages·로컬)에서만 꽂는다. */
+function paintFavicon(){
+  if (window.claude) return;
+  const draw = n =>{
+    const c = document.createElement("canvas"); c.width = c.height = n;
+    const x = c.getContext("2d");
+    x.fillStyle = UI.bone; rr(x, 0, 0, n, n, n*0.22); x.fill();
+    checkerPatch(x, 0, n*0.84, n, n*0.16, 5);
+    bikeMini(x, n*0.5, n*0.88, n*0.84, UI.rally);
+    return c.toDataURL("image/png");
+  };
+  const put = (rel, href)=>{
+    const l = document.createElement("link"); l.rel = rel; l.href = href;
+    document.head.appendChild(l);
+  };
+  put("icon", draw(64));
+  put("apple-touch-icon", draw(180));
+  const m = document.createElement("meta");
+  m.name = "theme-color"; m.content = "#17111d";
+  document.head.appendChild(m);
+}
+
 function paintIcons(root){
   (root || document).querySelectorAll("[data-icon]").forEach(h=>{
     const kind = h.getAttribute("data-icon");
@@ -2508,11 +2531,96 @@ function hostGo(){
   try{ if (G.room) G.room.emit("go", payload); }catch(e){}
   beginCountdown(payload);
 }
+/* ---------- 아티팩트 밖에서의 두 기기 연결 ----------
+   window.claude.use("room")은 게시된 아티팩트 안에만 있다. 깃허브 Pages나 로컬에서는
+   공용 PeerServer로 "방 번호 찾기"만 하고, 경기 데이터는 두 기기가 직통(P2P)한다 —
+   아이 이름과 기록이 남의 서버를 지나가지 않는다. 대신 서로 못 뚫는 망(회사·학교)에서는 안 붙는다.
+   claude room과 같은 모양(join/presence/peers/emit/on/leave)으로 감싸서 호출부는 그대로 둔다. */
+const PEERJS_SRC = "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js";
+let peerLoad = null;
+function loadPeerJS(){
+  if (peerLoad) return peerLoad;
+  peerLoad = new Promise(res=>{
+    if (window.Peer) return res(window.Peer);
+    const s = document.createElement("script");
+    s.src = PEERJS_SRC;
+    s.onload = ()=> res(window.Peer || null);
+    s.onerror = ()=> res(null);
+    document.head.appendChild(s);
+  });
+  return peerLoad;
+}
+function p2pRoom(Peer, roomName){
+  const hostSide = (G.role === "host");
+  const id = "motoduel-" + roomName;        // 공용 서버다 — 접두어로 남의 방 번호와 섞이지 않게
+  const handlers = {};
+  let conn = null, their = null, mine = {}, peerCb = null, dead = false, heard = 0;
+  const fire = (ev, data, isMe)=>
+    (handlers[ev]||[]).forEach(cb=>{ try{ cb({data:data, isMe:!!isMe}); }catch(e){} });
+  const send = m =>{ try{ if (conn && conn.open) conn.send(m); }catch(e){} };
+  const room = {
+    peers(){
+      const list = [{isMe:true, kind:"viewer", presence:mine}];
+      /* 탭을 그냥 닫으면 close가 몇 초씩 안 올 때가 있다. 숨소리(3초)가 끊기면 없는 것으로 친다 —
+         안 그러면 peerOnline()이 영원히 참이라 유령이 멈춘 채로 남는다. */
+      if (conn && conn.open && their && (Date.now() - heard) < 8000)
+        list.push({isMe:false, kind:"viewer", presence:their});
+      return list;
+    },
+    presence(p){ mine = Object.assign({}, mine, p||{}); send({t:"p", v:mine}); },
+    // 내가 보낸 것도 나에게 돌아온다 — claude room이 그렇고, hostGo가 그 동작에 기대고 있다
+    emit(ev, data){ send({t:"e", ev:ev, data:data}); fire(ev, data, true); },
+    on(ev, cb){ (handlers[ev] = handlers[ev] || []).push(cb); },
+    onPeers(cb){ peerCb = cb; },
+    leave(){ dead = true; clearInterval(beat); try{ if (conn) conn.close(); }catch(e){} try{ peer.destroy(); }catch(e){} }
+  };
+  function hook(c){
+    conn = c;
+    c.on("open", ()=>{ heard = Date.now(); send({t:"p", v:mine}); if (peerCb) peerCb(); });
+    c.on("data", m=>{
+      if (!m || typeof m !== "object") return;
+      heard = Date.now();
+      if (m.t === "p"){ their = m.v || {}; if (peerCb) peerCb(); }
+      else if (m.t === "e") fire(m.ev, m.data, false);
+    });
+    c.on("close", ()=>{ conn = null; their = null; if (peerCb) peerCb(); });
+    c.on("error", ()=>{});
+  }
+  const peer = hostSide ? new Peer(id) : new Peer();
+  const beat = setInterval(()=>{ if (conn && conn.open) send({t:"p", v:mine}); }, 3000);
+  /* 손님은 방이 아직 안 열렸을 수도 있다. 붙을 때까지, 끊기면 다시 3초마다 두드린다 —
+     누가 먼저 들어오든 상관없어야 한다(claude room이 그렇다). */
+  function knock(){
+    if (dead || hostSide) return;
+    if (!conn && peer.open){ try{ hook(peer.connect(id, {reliable:true})); }catch(e){} }
+    setTimeout(knock, 3000);
+  }
+  return new Promise((resolve, reject)=>{
+    setTimeout(()=>{                                       // 서버가 안 받으면 화면이 멈춰 있지 않게
+      if (peer.open) return;
+      room.leave(); reject(new Error("timeout"));
+    }, 12000);
+    peer.on("open", ()=>{ knock(); resolve(room); });
+    peer.on("connection", c=>{ if (!dead) hook(c); });
+    peer.on("error", e=>{
+      const t = e && e.type;
+      if (t === "peer-unavailable") return;      // 아직 방이 안 열렸다 — knock이 다시 두드린다
+      // 그 번호를 누가 쓰고 있다(아까 쓰던 내 방이 아직 안 닫혔거나, 남의 방이거나)
+      if (t === "unavailable-id"){ CFG.hostCode = ""; saveCfg(); }
+      reject(e);
+    });
+  });
+}
 async function getRoomCap(){
   if (roomTried) return roomCap;
   roomTried = true;
   try{ roomCap = (window.claude && window.claude.use) ? await window.claude.use("room") : null; }
   catch(e){ roomCap = null; }
+  /* 아티팩트 안인데 room이 없으면(로그아웃 등) P2P도 CSP에 막힌다 — 괜히 되는 척하지 않는다 */
+  if (!roomCap && !window.claude){
+    const Peer = await loadPeerJS();
+    if (Peer) roomCap = {p2p:true, join: name => p2pRoom(Peer, name)};
+  }
   return roomCap;
 }
 function newCode(){ return String(1000 + Math.floor(Math.random()*9000)); }
@@ -2523,13 +2631,15 @@ async function openNet(){
   warn.textContent = "연결을 확인하는 중…";
   const rc = await getRoomCap();
   if (!rc){
-    warn.innerHTML = "지금은 두 기기 연결을 쓸 수 없어요. <b>한 기기로 둘이</b>를 쓰면 바로 할 수 있습니다.";
+    warn.innerHTML = "지금은 두 기기 연결을 쓸 수 없어요(인터넷이 끊겼을 수 있어요). <b>한 기기로 둘이</b>를 쓰면 바로 할 수 있습니다.";
     $("#btn-host").disabled = true; $("#btn-join").disabled = true;
     $("#btn-host").style.filter = $("#btn-join").style.filter = "grayscale(1) brightness(.6)";
   } else {
     $("#btn-host").disabled = false; $("#btn-join").disabled = false;
     $("#btn-host").style.filter = $("#btn-join").style.filter = "";
-    warn.textContent = "형 기기에서 방을 만들고, 아이 기기에서 들어가세요.";
+    warn.textContent = rc.p2p
+      ? "형 기기에서 방을 만들고, 아이 기기에서 들어가세요. 두 기기가 같은 와이파이일 때 제일 잘 붙어요."
+      : "형 기기에서 방을 만들고, 아이 기기에서 들어가세요.";
   }
   const last = CFG.lastCode;
   $("#btn-rejoin").hidden = !last || !rc;
@@ -3550,6 +3660,7 @@ function start(saved){
   loadCfg();
   if (saved && saved.cfg) Object.assign(CFG, saved.cfg);
   restoreTilt();
+  paintFavicon();
   paintIcons();
   checkOrient();
   goHome();
